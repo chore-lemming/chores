@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satellite Visibility Calculator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Satellite Visibility Calculator</h1>
+        <form action="{{ url_for('calculate') }}" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="site1">Select Site 1:</label>
+                <select name="site1" id="site1">
+                    {% for site in sites %}
+                        <option value="{{ site }}">{{ site }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="site2">Select Site 2:</label>
+                <select name="site2" id="site2">
+                    {% for site in sites %}
+                        <option value="{{ site }}">{{ site }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="time">Time (YYYY-MM-DD HH:MM:SS):</label>
+                <input type="text" id="time" name="time" value="{{ datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') }}">
+            </div>
+            <div class="form-group">
+                <label for="tle_url">TLE URL:</label>
+                <input type="text" id="tle_url" name="tle_url" value="https://celestrak.org/NORAD/elements/gp.php?GROUP=geo&FORMAT=tle" required>
+            </div>
+            <button type="submit">Calculate Visibility</button>
+        </form>
+        {% if output %}
+            <h2>Results</h2>
+            <pre>{{ output }}</pre>
+            <form action="{{ url_for('download') }}" method="post">
+                <input type="hidden" name="output" value="{{ output }}">
+                <input type="hidden" name="site1" value="{{ request.form['site1'] }}">
+                <input type="hidden" name="site2" value="{{ request.form['site2'] }}">
+                <input type="hidden" name="time" value="{{ request.form['time'] }}">
+                <button type="submit">Download Results</button>
+            </form>
+        {% endif %}
+    </div>
+</body>
+</html>
