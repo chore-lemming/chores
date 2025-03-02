@@ -17,7 +17,7 @@ class SatelliteVisibilityApp:
         self.tle_filename = ""
         
         # Load site locations from JSON files
-        self.sites_dir = os.path.join(os.path.dirname(__file__), 'sites')
+        self.sites_dir = os.path.join(os.path.dirname(__file__), '..', 'sites')
         self.sites = {}
         site_names = []
         for filename in os.listdir(self.sites_dir):
