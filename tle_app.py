@@ -43,7 +43,7 @@ class SatelliteVisibilityApp:
         
         tk.Label(root, text="Time (YYYY-MM-DD HH:MM:SS):").grid(row=6, column=0, pady=5)
         
-        # Drop-down menus and entry fields
+        # Drop-down menus and labels
         self.site1_var = tk.StringVar(value=default_site1)
         self.site2_var = tk.StringVar(value=default_site2)
         self.lat1_var = tk.StringVar(value=str(self.sites[default_site1]["lat"]) if default_site1 else "")
@@ -53,12 +53,16 @@ class SatelliteVisibilityApp:
         self.time_var = tk.StringVar(value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
         
         tk.OptionMenu(root, self.site1_var, *self.sites.keys(), command=self.update_site1).grid(row=0, column=1)
-        tk.Entry(root, textvariable=self.lat1_var).grid(row=1, column=1)
-        tk.Entry(root, textvariable=self.lon1_var).grid(row=2, column=1)
+        self.lat1_label = tk.Label(root, text=self.lat1_var.get())
+        self.lat1_label.grid(row=1, column=1)
+        self.lon1_label = tk.Label(root, text=self.lon1_var.get())
+        self.lon1_label.grid(row=2, column=1)
         
         tk.OptionMenu(root, self.site2_var, *self.sites.keys(), command=self.update_site2).grid(row=3, column=1)
-        tk.Entry(root, textvariable=self.lat2_var).grid(row=4, column=1)
-        tk.Entry(root, textvariable=self.lon2_var).grid(row=5, column=1)
+        self.lat2_label = tk.Label(root, text=self.lat2_var.get())
+        self.lat2_label.grid(row=4, column=1)
+        self.lon2_label = tk.Label(root, text=self.lon2_var.get())
+        self.lon2_label.grid(row=5, column=1)
         
         tk.Entry(root, textvariable=self.time_var).grid(row=6, column=1)
         
@@ -80,10 +84,14 @@ class SatelliteVisibilityApp:
     def update_site1(self, selection):
         self.lat1_var.set(self.sites[selection]["lat"])
         self.lon1_var.set(self.sites[selection]["lon"])
+        self.lat1_label.config(text=self.lat1_var.get())
+        self.lon1_label.config(text=self.lon1_var.get())
     
     def update_site2(self, selection):
         self.lat2_var.set(self.sites[selection]["lat"])
         self.lon2_var.set(self.sites[selection]["lon"])
+        self.lat2_label.config(text=self.lat2_var.get())
+        self.lon2_label.config(text=self.lon2_var.get())
         
     def load_tle(self):
         filename = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
@@ -157,7 +165,9 @@ class SatelliteVisibilityApp:
             
             self.results_text.delete(1.0, tk.END)
             if results:
-                summary = f"{len(results)} satellites visible from {self.site1_var.get()} and {self.site2_var.get()} at {self.time_var.get()}\n"
+                summary = (f"{len(results)} satellites visible from {self.site1_var.get()} "
+                           f"({self.lat1_var.get()}, {self.lon1_var.get()}) and {self.site2_var.get()} "
+                           f"({self.lat2_var.get()}, {self.lon2_var.get()}) at {self.time_var.get()}\n")
                 tle_summary = f"TLE File: {self.tle_filename}\n\n"
                 headers = ["NORAD ID", "Satellite", f"{self.site1_var.get()} Elevation", f"{self.site1_var.get()} Azimuth", f"{self.site2_var.get()} Elevation", f"{self.site2_var.get()} Azimuth", "Days Since Epoch"]
                 table = tabulate(results, headers=headers, tablefmt="pipe")
