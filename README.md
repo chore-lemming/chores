@@ -113,6 +113,8 @@ Contributions are welcome! If you have suggestions for improvements or new featu
 
 ---
 
+## License
+
 This project is licensed under the Unlicense. This means you can do whatever you want with this project, including copying, modifying, and distributing it, without asking for permission. 
 
 For more details, please see the [UNLICENSE](LICENSE) file in the repository.
