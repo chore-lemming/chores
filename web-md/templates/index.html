@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        footer {
+            margin-top: 20px;
+            font-size: 0.9em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Markdown Document</h1>
+    <p><strong>Last Updated: {{ last_modified_date }}</strong></p>
+    <div>
+        {{ content|safe }}
+    </div>
+    <footer>
+        <p>Last Updated: {{ last_modified_date }}</p>
+    </footer>
+    <button onclick="window.print()">Print this page</button>
+</body>
+</html>
