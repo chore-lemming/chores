@@ -17,6 +17,20 @@
             font-size: 0.9em;
             color: #666;
         }
+        /* Print styles */
+        @media print {
+            table {
+                page-break-inside: avoid; /* Prevent page breaks inside tables */
+                width: 100%; /* Ensure tables take full width */
+            }
+            tr {
+                page-break-inside: avoid; /* Prevent page breaks inside table rows */
+                page-break-after: auto; /* Allow page breaks after rows if necessary */
+            }
+            td, th {
+                page-break-inside: avoid; /* Prevent page breaks inside table cells */
+            }
+        }
     </style>
 </head>
 <body>

@@ -38,7 +38,7 @@ def index():
             content = f.read()
 
         # Convert markdown to HTML
-        html_content = markdown.markdown(content)
+        html_content = markdown.markdown(content, extensions=['tables'])
 
         # Get the last modified time of the markdown file
         last_modified_time = os.path.getmtime(MARKDOWN_FILE)
@@ -59,5 +59,5 @@ def internal_error(error):
     return render_template('500.html'), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=6100)
-    #app.run(host='0.0.0.0', port=6000)
+    #app.run(debug=True, port=6100)
+    app.run(host='0.0.0.0', port=6100)
