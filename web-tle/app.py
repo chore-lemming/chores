@@ -7,8 +7,30 @@ import os
 import json
 import io
 import requests
+import logging
+from logging.handlers import TimedRotatingFileHandler
+
 
 app = Flask(__name__)
+
+
+# Create logs directory if it doesn't exist
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+
+# Configure logging with daily rotation
+log_filename = f'logs/app_{datetime.now().strftime("%Y-%m-%d")}.log'
+handler = TimedRotatingFileHandler(log_filename, when='midnight', interval=1)
+handler.suffix = "%Y-%m-%d"
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# Set up the root logger
+logger = logging.getLogger('SatelliteVisibilityCalculator')
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+
+
 
 # Load site locations from JSON files
 sites_dir = os.path.join(os.path.dirname(__file__),'..', 'sites')
@@ -98,6 +120,11 @@ def calculate():
     table = tabulate(results, headers=headers, tablefmt="pipe")
 
     output = summary + table
+    
+    # Log the calculation
+    logger.info(f"Visibility calculated for sites {site1} and {site2} at {time_str}")
+    
+    
     return render_template('index.html', sites=site_names, output=output, datetime=datetime)
 
 @app.route('/download', methods=['POST'])
