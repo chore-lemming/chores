@@ -1,6 +1,12 @@
 import tkinter as tk
 import socket
 import threading
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import io
+# import baseband
+from baseband import vdif
 
 class VDIFReceiver:
     def __init__(self):
@@ -40,6 +46,20 @@ class VDIFReceiver:
         self.receiving_thread = None
         self.receiving = False
 
+        # Initialize data for plotting
+        self.data = []
+        self.plot_frame = tk.Frame(self.main_frame)
+        self.plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        self.buffer = io.BytesIO()
+        self.fh = vdif.open(self.buffer, 'rb')
+        self.buffer_frame = None
+
+        # Create a matplotlib figure and axis
+        self.figure, self.ax = plt.subplots()
+        self.canvas = FigureCanvasTkAgg(self.figure, master=self.plot_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
     def start_receiving(self):
         port = int(self.port_entry.get())
         output_file = self.file_entry.get()
@@ -68,18 +88,45 @@ class VDIFReceiver:
     def receive_data(self, output_file):
         with open(output_file, 'wb') as f:
             self.status_label.config(text=f"Receiving data to {output_file}...")
+            frame_count = 0
             while self.receiving:
                 try:
                     data, addr = self.socket.recvfrom(4096)  # Buffer size is 4096 bytes
                     if data:
                         f.write(data)
                         print(f"Received {len(data)} bytes from {addr}")
+                        self.data.append(len(data))  # Store the length of received data
+                        frame_count += 1
+
+                        # Call process_data every N frames
+                        if frame_count % 100 == 0:  # Change 10 to any N you want
+                            self.buffer.seek(0)
+                            self.buffer.write(data)
+                            self.buffer.seek(0)
+                            self.buffer_frame = self.fh.read_frame()
+                            self.process_data()
+                            
+
                 except Exception as e:
                     if not self.receiving:  # If we are stopping, ignore exceptions
                         break
                     print(f"Error receiving data: {e}")
 
         self.status_label.config(text="Data written to " + output_file)
+
+    def process_data(self):
+        # Update the plot with the current data
+        # print(baseband.file_info(self.buffer))
+        self.ax.clear()
+        frame_data = self.buffer_frame.data
+        self.ax.plot(10*np.log10(np.abs(np.fft.fft(frame_data, axis=0))))
+        self.ax.set_title("FFT for " + 
+                          f"Thread {self.buffer_frame.header['thread_id']} " + 
+                          f"Frame {self.buffer_frame.header['frame_nr']}")
+        self.ax.set_xlabel('Frame Number')
+        self.ax.set_ylabel('dB')
+        # self.ax.legend()
+        self.canvas.draw()
 
     def run(self):
         self.root.mainloop()
