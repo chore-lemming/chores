@@ -121,11 +121,11 @@ class VDIFStreamer:
             for ii in range(len(self.vdif_threads)):
                 frame = self.vdif_file.read(self.frame_nbytes)
                 self.socket.sendto(frame, (self.destination[0], int(self.destination[1])))
-            if fs_ct % 100 == 0:
+            if fs_ct % self.frame_rate == 0:
                 self.status_label.config(text=f"Streaming frame {fs_ct} of {self.num_frames}")
             self.root.update()
             time.sleep(1 / self.frame_rate)
-        self.status_label.config(text="Finished streaming")
+        self.status_label.config(text=f"Finished at frame {fs_ct+1} of {self.num_frames}")
         self.streaming = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
