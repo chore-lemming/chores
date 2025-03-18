@@ -63,11 +63,48 @@ class VDIFReceiver:
         self.figure, self.ax = plt.subplots()
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.plot_interval_s = 0.1
+        self.last_plot_time = None
+        self.img = None
+        self.cbar = None
+
+        # Create checkbox to control packet writing
+        # Create a variable to hold the state of the checkbox
+        self.check_var = tk.IntVar()
+
+        self.write_checkbox = tk.Checkbutton(self.main_frame, text="Write packets to file", variable=self.check_var)
+        self.write_checkbox.pack()
+
+        # Create entry fields for y-extent and x-min/x-max
+        self.y_extent_label = tk.Label(self.main_frame, text="Y-extent (seconds):")
+        self.y_extent_label.pack()
+        self.y_extent_entry = tk.Entry(self.main_frame)
+        self.y_extent_entry.insert(0, "2")  # Default y-extent
+        self.y_extent_entry.pack()
+
+        self.x_min_label = tk.Label(self.main_frame, text="X-min:")
+        self.x_min_label.pack()
+        self.x_min_entry = tk.Entry(self.main_frame)
+        self.x_min_entry.insert(0, "-0.05")  # Default x-min
+        self.x_min_entry.pack()
+
+        self.x_max_label = tk.Label(self.main_frame, text="X-max:")
+        self.x_max_label.pack()
+        self.x_max_entry = tk.Entry(self.main_frame)
+        self.x_max_entry.insert(0, "0.05")  # Default x-max
+        self.x_max_entry.pack()
 
         # Reset internal variables
         self.reset()
 
+        # Automatically start listening
+        self.start_receiving()
+
     def start_receiving(self):
+        
+        # Clear old data from axis
+        self.ax.clear()
+        
         port = int(self.port_entry.get())
         output_file = self.file_entry.get()
         self.channel = int(self.channel_entry.get())
@@ -98,7 +135,6 @@ class VDIFReceiver:
         print("Stopped receiving. Reset and ready for new stream")
 
     def reset(self):
-
         # Initialize socket and thread variables
         self.socket = None
         self.receiving_thread = None
@@ -113,15 +149,22 @@ class VDIFReceiver:
         self.fh_proc = vdif.open(self.proc_buffer, 'rb')
         self.proc_buffer_start_time = None
 
+        # Initialize the plot buffer
+        self.plot_buffer = []
+        self.last_plot_time = None
+        self.img = None
+        if self.cbar is not None:
+            self.cbar.remove()
 
     def receive_data(self, output_file):
         with open(output_file, 'wb') as f:
-            self.status_label.config(text=f"Receiving data to {output_file}...")
+            self.status_label.config(text=f"Opened {output_file} for writing...")
             while self.receiving:
                 try:
                     data, addr = self.socket.recvfrom(4096)  # Buffer size is 4096 bytes
                     if data:
-                        f.write(data)
+                        if self.check_var.get():
+                            f.write(data)
 
                         # First time receiving data, get frame & sample rates
                         if self.frame_rate == 0:
@@ -141,7 +184,6 @@ class VDIFReceiver:
 
                         # Read from single packet buffer. Build up processing buffer
                         if self.buffer_frame.header['thread_id'] == self.channel:
-
                             current_frame_time = self.calculate_first_sample_time(frame=self.buffer_frame)
 
                             if self.proc_buffer_start_time is None:
@@ -164,8 +206,11 @@ class VDIFReceiver:
                         break
                     print(f"Error receiving data: {e}")
 
-        self.status_label.config(text="Data written to " + output_file)
-        print("Data written to " + output_file)
+        if self.check_var.get():
+            self.status_label.config(text="Data written to " + output_file)
+            print("Data written to " + output_file)
+        else:
+            self.status_label.config(text="Stopped listening and processing")
 
     def process_data(self):
         # Read number of frames that are in the buffer
@@ -183,18 +228,52 @@ class VDIFReceiver:
             buffer_frame = self.fh_proc.read_frame()
             proc_data = np.append(proc_data, buffer_frame.data)
 
-
         # Update the plot with the current data
-        self.ax.clear()
         x_Hz = np.fft.fftshift(np.fft.fftfreq(len(proc_data), d=1/self.sample_rate))
-        self.ax.plot(x_Hz/1e6, 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(proc_data, axis=0)))))
-        self.ax.set_title(f"{len(proc_data)} Point FFT for " +
-                          f"Thread {buffer_frame.header['thread_id']} " +
-                          str(self.calculate_first_sample_time(frame=buffer_frame)))
-        self.ax.set_xlabel('Frequency (MHz)')
-        self.ax.set_ylabel('dB')
-        # self.ax.legend()
-        self.canvas.draw()
+        y_dB = 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(proc_data, axis=0))))
+
+        # Add new line to the plot buffer
+        if len(self.plot_buffer) == 0:
+            sec_per_row = len(y_dB) * 1/self.sample_rate
+            num_rows = np.int32(np.float64(self.y_extent_entry.get()) // sec_per_row)
+            print(f"Initializing plot_buffer with num_rows {num_rows} and num_col {len(y_dB)}")
+            self.plot_buffer = np.full((num_rows, len(y_dB)), np.nan)
+        
+
+        # Shift the existing data up by one row
+        self.plot_buffer[1:] = self.plot_buffer[:-1]
+        self.plot_buffer[0] = y_dB
+
+        # Remove old data exceeding the y-extent
+        y_extent = int(self.y_extent_entry.get())
+
+        # Create/Update the color plot
+        if self.last_plot_time is None:
+            self.last_plot_time = self.proc_buffer_start_time
+            self.img = self.ax.imshow(
+                np.array(self.plot_buffer), 
+                aspect='auto', 
+                extent=[x_Hz.min()/1e6, x_Hz.max()/1e6, 0, y_extent], 
+                origin='lower')
+            self.cbar = plt.colorbar(self.img)
+            self.cbar.set_label('Intensity (dB)')
+
+        
+        elif self.last_plot_time + timedelta(seconds=self.plot_interval_s) < self.proc_buffer_start_time:
+            #self.ax.clear()
+            self.img.set_array(self.plot_buffer) 
+            
+            # Set plot limits
+            self.img.set_clim(
+                vmin=np.nanmin(self.plot_buffer), 
+                vmax=np.nanmax(self.plot_buffer))   
+            self.ax.set_xlim([float(self.x_min_entry.get()), float(self.x_max_entry.get())])
+            self.ax.set_ylim([0, y_extent])
+            self.ax.set_xlabel('Frequency (MHz)')
+            self.ax.set_ylabel('Time (s) before ' + str(self.proc_buffer_start_time))
+            self.ax.set_title('Spectrogram')
+            self.canvas.draw()
+            self.last_plot_time = self.proc_buffer_start_time
 
     def calculate_first_sample_time(self, frame):
         # Function to calculate the time of the first sample in a VDIF frame
