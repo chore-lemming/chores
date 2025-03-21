@@ -54,7 +54,7 @@ def generate_vdif(filename, sample_rate, num_samples, num_threads, time=None):
     with vdif.open(
         filename, 'ws', sample_rate=sample_rate * u.Hz,
         samples_per_frame=4000, nchan=1, nthread=num_threads,
-        complex_data=False, bps=2, edv=3, station=65532,
+        complex_data=False, bps=2, edv=0, station=65532,
         time=time
     ) as fw:
         fw.write(generate_random_array(
