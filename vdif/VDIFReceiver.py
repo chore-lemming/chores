@@ -161,29 +161,31 @@ class VDIFReceiver:
             self.status_label.config(text=f"Opened {output_file} for writing...")
             while self.receiving:
                 try:
-                    data, addr = self.socket.recvfrom(4096)  # Buffer size is 4096 bytes
+                    data, addr = self.socket.recvfrom(2**14)  # arg is buffer size in bytes
                     if data:
                         if self.check_var.get():
                             f.write(data)
-
-                        # First time receiving data, get frame & sample rates
-                        if self.frame_rate == 0:
-                            self.buffer.seek(0)
-                            self.buffer.write(data)
-                            self.buffer.seek(0)
-                            self.buffer_frame = self.fh_buff.read_frame()
-                            print(self.fh_buff.info())
-                            self.frame_rate = np.float64(self.fh_buff.info()['frame_rate'])
-                            self.sample_rate = np.float64(self.fh_buff.info()['sample_rate'])
 
                         # Always write packet to buffer and read as VDIF frame
                         self.buffer.seek(0)
                         self.buffer.write(data)
                         self.buffer.seek(0)
                         self.buffer_frame = self.fh_buff.read_frame()
-
-                        # Read from single packet buffer. Build up processing buffer
-                        if self.buffer_frame.header['thread_id'] == self.channel:
+                        
+                        # Check for the thread we want to process
+                        if not self.buffer_frame.header['thread_id'] == self.channel:
+                            continue
+                        
+                        # Get frame & sample rates from headers only
+                        if self.frame_rate <= self.buffer_frame.header['frame_nr']:
+                            self.frame_rate = self.buffer_frame.header['frame_nr'] + 1
+                            self.sample_rate = self.frame_rate * np.int32(len(data)-32)*8/2**self.buffer_frame.header['bits_per_sample']
+                            print(f"frame_rate, sample_rate: {self.frame_rate}, {self.sample_rate}")
+                            if self.proc_buffer_start_time is not None:
+                                self.proc_buffer = io.BytesIO()
+                                self.proc_buffer_start_time = None
+                        else:
+                            # Read from single packet buffer. Build up processing buffer
                             current_frame_time = self.calculate_first_sample_time(frame=self.buffer_frame)
 
                             if self.proc_buffer_start_time is None:
