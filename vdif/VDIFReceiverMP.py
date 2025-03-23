@@ -1,6 +1,5 @@
 import tkinter as tk
 import socket
-#import time
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -15,14 +14,18 @@ def receive_data(port, output_file, raw_data_queue, check_var):
     socket_.bind(('0.0.0.0', port))
     print(f"Listening on port {port}")
 
-    with open(output_file, 'wb') as f:
-        print(f"Opened {output_file} for writing...")
-        while True:
-            data, addr = socket_.recvfrom(2**14)  # arg is buffer size in bytes
-            if data:
-                raw_data_queue.put(data)
-                if check_var:
-                    f.write(data)
+    try:
+        with open(output_file, 'wb') as f:
+            print(f"Opened {output_file} for writing...")
+            while True:
+                data, addr = socket_.recvfrom(2**14)  # arg is buffer size in bytes
+                if data:
+                    raw_data_queue.put(data)
+                    if check_var:
+                        f.write(data)
+    finally:
+        socket_.close()
+        print(f"Socket on port {port} closed.")
 
 def process_data(raw_data_queue, processed_data_queue, channel, buffer_length_ms, frame_rate, sample_rate, proc_buffer_start_time):
     buffer = io.BytesIO()
@@ -56,8 +59,6 @@ def process_data(raw_data_queue, processed_data_queue, channel, buffer_length_ms
             if time_diff_ms < buffer_length_ms:
                 print(f"Time Diff: {time_diff_ms} ms. Added frame to proc_buffer")
             else:
-                # Record the start time
-                #start_time = time.time()
                 proc_buffer.seek(0)
                 fh_proc = vdif.open(proc_buffer, 'rb')
                 proc_info = fh_proc.info()
@@ -75,13 +76,6 @@ def process_data(raw_data_queue, processed_data_queue, channel, buffer_length_ms
 
                 proc_buffer = io.BytesIO()
                 proc_buffer_start_time = current_frame_time
-                
-                # Record the end time
-                #end_time = time.time()
-                
-                # Calculate the elapsed time
-                #elapsed_time = end_time - start_time
-                #print(f"Time Diff: {time_diff_ms} ms. Processed proc_buffer in {elapsed_time} seconds")
 
             proc_buffer.write(data)
 
@@ -223,8 +217,10 @@ class VDIFReceiver:
         self.receiving = False
         if self.receiver_process.is_alive():
             self.receiver_process.terminate()
+            self.receiver_process.join()
         if self.processor_process.is_alive():
             self.processor_process.terminate()
+            self.processor_process.join()
         self.status_label.config(text="Receiver stopped.")
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
@@ -255,42 +251,44 @@ class VDIFReceiver:
             self.cbar.remove()
 
     def update_plot(self):
-        if not self.processed_data_queue.empty():
+        new_data = []
+        while not self.processed_data_queue.empty():
             x_Hz, y_dB, proc_buffer_start_time = self.processed_data_queue.get()
-            if len(self.plot_buffer) == 0:
-                sec_per_row = len(y_dB) * 1/self.sample_rate.value
-                num_rows = np.int32(np.float64(self.y_extent_entry.get()) // sec_per_row)
-                print(f"Initializing plot_buffer with num_rows {num_rows} and num_col {len(y_dB)}")
-                self.plot_buffer = np.full((num_rows, len(y_dB)), np.nan)
-
-            self.plot_buffer[1:] = self.plot_buffer[:-1]
-            self.plot_buffer[0] = y_dB
-
+            new_data.append((x_Hz, y_dB, proc_buffer_start_time))
+        
+        if new_data:
             y_extent = int(self.y_extent_entry.get())
-            
+            if len(self.plot_buffer) == 0:
+                sec_per_row = len(new_data[0][1]) * 1/self.sample_rate.value
+                num_rows = np.int32(np.float64(self.y_extent_entry.get()) // sec_per_row)
+                print(f"Initializing plot_buffer with num_rows {num_rows} and num_col {len(new_data[0][1])}")
+                self.plot_buffer = np.full((num_rows, len(new_data[0][1])), np.nan)
+
+            for _, y_dB, proc_buffer_start_time in new_data:
+                self.plot_buffer = np.vstack((y_dB, self.plot_buffer[:-1]))
+
             if self.last_plot_time is None:
                 print('Initializing img')
-                self.last_plot_time = proc_buffer_start_time
+                self.last_plot_time = new_data[-1][2]
                 self.img = self.ax.imshow(np.array(self.plot_buffer), aspect='auto', extent=[x_Hz.min()/1e6, x_Hz.max()/1e6, 0, y_extent], origin='lower')
                 self.cbar = plt.colorbar(self.img)
                 self.cbar.set_label('Intensity (dB)')
                 
-            elif self.last_plot_time + timedelta(seconds=self.plot_interval_s) < proc_buffer_start_time:
+            elif self.last_plot_time + timedelta(seconds=self.plot_interval_s) < new_data[-1][2]:
                 print('Updating img')
-                self.last_plot_time = proc_buffer_start_time
+                self.last_plot_time = new_data[-1][2]
                 self.img.set_array(self.plot_buffer)
                 self.img.set_clim(vmin=np.nanmin(self.plot_buffer), vmax=np.nanmax(self.plot_buffer))
                 self.ax.set_xlim([float(self.x_min_entry.get()), float(self.x_max_entry.get())])
                 self.ax.set_ylim([0, y_extent])
                 self.ax.set_xlabel('Frequency (MHz)')
-                self.ax.set_ylabel('Time (s) before ' + str(proc_buffer_start_time))
+                self.ax.set_ylabel('Time (s) before ' + str(new_data[-1][2]))
                 self.ax.set_title('Spectrogram')
                 self.canvas.draw()
             else:
-                print(f"Not updating img. Time since plot: {proc_buffer_start_time - self.last_plot_time}")
+                print(f"Not updating img. Time since plot: {new_data[-1][2] - self.last_plot_time}")
 
         if self.receiving:
-            # print('Calling self.update_plot')
             self.root.after(10, self.update_plot)
 
     def run(self):
