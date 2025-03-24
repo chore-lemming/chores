@@ -57,7 +57,7 @@ def process_data(raw_data_queue, processed_data_queue, channel, buffer_length_ms
 
             time_diff_ms = (current_frame_time - proc_buffer_start_time).total_seconds() * 1000
             if time_diff_ms < buffer_length_ms:
-                print(f"Time Diff: {time_diff_ms} ms. Added frame to proc_buffer")
+                print(f"Time Diff: {time_diff_ms} ms. Adding frame to proc_buffer")
             else:
                 proc_buffer.seek(0)
                 fh_proc = vdif.open(proc_buffer, 'rb')
@@ -70,13 +70,15 @@ def process_data(raw_data_queue, processed_data_queue, channel, buffer_length_ms
                     proc_data = np.append(proc_data, buffer_frame.data)
 
                 x_Hz = np.fft.fftshift(np.fft.fftfreq(len(proc_data), d=1/sample_rate.value))
-                y_dB = 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(proc_data, axis=0))))
+                y = np.abs(np.fft.fftshift(np.fft.fft(proc_data, axis=0)))
 
-                processed_data_queue.put((x_Hz, y_dB, proc_buffer_start_time))
+                processed_data_queue.put((x_Hz, y, proc_buffer_start_time))
 
                 proc_buffer = io.BytesIO()
                 proc_buffer_start_time = current_frame_time
+                print(f"Time Diff: {time_diff_ms} ms. Processed proc_buffer and writing frame to new buffer")
 
+            # In either case, write data to proc_buffer
             proc_buffer.write(data)
 
 def calculate_first_sample_time(frame, frame_rate):
@@ -147,34 +149,34 @@ class VDIFReceiver:
         self.figure, self.ax = plt.subplots()
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self.plot_interval_s = 0.25
         self.last_plot_time = None
-        self.img = None
-        self.cbar = None
 
         # Create checkbox to control packet writing
         self.check_var = tk.IntVar()
         self.write_checkbox = tk.Checkbutton(self.main_frame, text="Write packets to file", variable=self.check_var)
         self.write_checkbox.pack()
 
-        # Create entry fields for y-extent and x-min/x-max
-        self.y_extent_label = tk.Label(self.main_frame, text="Y-extent (seconds):")
-        self.y_extent_label.pack()
-        self.y_extent_entry = tk.Entry(self.main_frame)
-        self.y_extent_entry.insert(0, "2")  # Default y-extent
-        self.y_extent_entry.pack()
+        # Create entry fields for integration time and x-min/x-max
+        self.integration_time_label = tk.Label(self.main_frame, text="Integration time (seconds):")
+        self.integration_time_label.pack()
+        self.integration_time_entry = tk.Entry(self.main_frame)
+        self.integration_time_entry.insert(0, "0.25")  # Default integration time
+        self.integration_time_entry.pack()
 
         self.x_min_label = tk.Label(self.main_frame, text="X-min:")
         self.x_min_label.pack()
         self.x_min_entry = tk.Entry(self.main_frame)
-        self.x_min_entry.insert(0, "-0.05")  # Default x-min
+        self.x_min_entry.insert(0, "-1")  # Default x-min
         self.x_min_entry.pack()
 
         self.x_max_label = tk.Label(self.main_frame, text="X-max:")
         self.x_max_label.pack()
         self.x_max_entry = tk.Entry(self.main_frame)
-        self.x_max_entry.insert(0, "0.05")  # Default x-max
+        self.x_max_entry.insert(0, "1")  # Default x-max
         self.x_max_entry.pack()
+        
+        
+        self.plot_interval_s = np.float64(self.integration_time_entry.get())
 
         # Reset internal variables
         self.reset()
@@ -246,47 +248,42 @@ class VDIFReceiver:
         # Initialize the plot buffer
         self.plot_buffer = []
         self.last_plot_time = None
-        self.img = None
-        if self.cbar is not None:
-            self.cbar.remove()
 
     def update_plot(self):
         new_data = []
         while not self.processed_data_queue.empty():
-            x_Hz, y_dB, proc_buffer_start_time = self.processed_data_queue.get()
-            new_data.append((x_Hz, y_dB, proc_buffer_start_time))
+            x_Hz, y, proc_buffer_start_time = self.processed_data_queue.get()
+            new_data.append((x_Hz, y, proc_buffer_start_time))
         
         if new_data:
-            y_extent = int(self.y_extent_entry.get())
             if len(self.plot_buffer) == 0:
                 sec_per_row = len(new_data[0][1]) * 1/self.sample_rate.value
-                num_rows = np.int32(np.float64(self.y_extent_entry.get()) // sec_per_row)
+                num_rows = np.int32(np.float64(self.integration_time_entry.get()) // sec_per_row)
                 print(f"Initializing plot_buffer with num_rows {num_rows} and num_col {len(new_data[0][1])}")
                 self.plot_buffer = np.full((num_rows, len(new_data[0][1])), np.nan)
 
-            for _, y_dB, proc_buffer_start_time in new_data:
-                self.plot_buffer = np.vstack((y_dB, self.plot_buffer[:-1]))
+            for _, y, proc_buffer_start_time in new_data:
+                self.plot_buffer = np.vstack((y, self.plot_buffer[:-1]))
+
 
             if self.last_plot_time is None:
-                print('Initializing img')
+                print('Initializing line plot')
+                non_coherent_sum = 10*np.log10(np.nanmean(self.plot_buffer, axis=0))
                 self.last_plot_time = new_data[-1][2]
-                self.img = self.ax.imshow(np.array(self.plot_buffer), aspect='auto', extent=[x_Hz.min()/1e6, x_Hz.max()/1e6, 0, y_extent], origin='lower')
-                self.cbar = plt.colorbar(self.img)
-                self.cbar.set_label('Intensity (dB)')
-                
-            elif self.last_plot_time + timedelta(seconds=self.plot_interval_s) < new_data[-1][2]:
-                print('Updating img')
-                self.last_plot_time = new_data[-1][2]
-                self.img.set_array(self.plot_buffer)
-                self.img.set_clim(vmin=np.nanmin(self.plot_buffer), vmax=np.nanmax(self.plot_buffer))
+                self.line, = self.ax.plot(x_Hz / 1e6, non_coherent_sum)
                 self.ax.set_xlim([float(self.x_min_entry.get()), float(self.x_max_entry.get())])
-                self.ax.set_ylim([0, y_extent])
                 self.ax.set_xlabel('Frequency (MHz)')
-                self.ax.set_ylabel('Time (s) before ' + str(new_data[-1][2]))
-                self.ax.set_title('Spectrogram')
+                self.ax.set_ylabel('Intensity')
+                self.ax.set_title(f'{self.integration_time_entry.get()}s Non-coherent sum until {new_data[-1][2]}')
                 self.canvas.draw()
-            else:
-                print(f"Not updating img. Time since plot: {new_data[-1][2] - self.last_plot_time}")
+                
+            elif self.last_plot_time + timedelta(seconds=self.plot_interval_s) <= new_data[-1][2]:
+                print(f"Updating line plot. Time since plot: {new_data[-1][2] - self.last_plot_time}")
+                self.last_plot_time = new_data[-1][2]
+                non_coherent_sum = 10*np.log10(np.nanmean(self.plot_buffer, axis=0))
+                self.line.set_ydata(non_coherent_sum)
+                self.ax.set_title(f'{self.integration_time_entry.get()}s Non-coherent sum until {new_data[-1][2]}')
+                self.canvas.draw()
 
         if self.receiving:
             self.root.after(10, self.update_plot)
